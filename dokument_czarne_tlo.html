@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dokument</title>
+<style>
+body {
+    background-color: #000;
+    color: #fff;
+    font-family: Arial, sans-serif;
+    line-height: 1.6;
+    max-width: 1000px;
+    margin: 40px auto;
+    padding: 20px;
+}
+pre {
+    color: #fff;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+</style>
+</head>
+<body>
+<pre>1. Rozróżnianie użytkowników o różnych uprawnieniach
+Odpowiedź:
+Aplikacja rozróżnia użytkowników na podstawie dodatkowej kolumny role w tabeli users w bazie danych (domyślnie przyjmuje wartość user, a dla administratora admin).
+Doskonałym przykładem jest przycisk &quot;Edytuj te zajęcia&quot; na stronie szczegółów treningu. Zwykły klient (user) absolutnie nie powinien mieć możliwości modyfikacji grafiku, natomiast administrator (admin) tak.
+Projekt kontroluje to na dwóch warstwach. W warstwie widoku (Frontend/Blade) użyta jest dyrektywa warunkowa @if(auth()-&gt;user()-&gt;role === &#x27;admin&#x27;), która ukrywa przycisk przed zwykłymi użytkownikami. Dodatkowo, na poziomie Backend&#x27;u, trasy odpowiadające za edycję (/sport-classes/{id}/edit) mogą być zabezpieczone odpowiednim Middleware&#x27;m, który w przypadku próby wejścia &quot;z palca&quot; w adres URL przez zwykłego użytkownika, odrzuci żądanie i zwróci błąd 403 (Brak dostępu).
+
+
+
+2 i 3. Przepływ danych w aplikacji (Cykl życia żądania: Rezerwacja miejsca)
+Odpowiedź:
+Wybrałem akcję Dodania rezerwacji miejsca na zajęcia sportowe.
+
+Warstwa Prezentacji (Widok Blade): Użytkownik klika przycisk &quot;Zarezerwuj&quot; w pliku show.blade.php. Formularz wysyła żądanie typu POST, przekazując ID zajęć (np. /reserve/5). Dołączany jest tu token @csrf, który chroni przed atakami typu Cross-Site Request Forgery.
+
+Warstwa Routingu (web.php): System odbiera żądanie POST pod adresem /reserve/{sportClass}. Routing rozpoznaje intencję i kieruje żądanie do metody store w klasie ReservationController.
+
+Warstwa Logiki Biznesowej (ReservationController.php): Kontroler odbiera żądanie. Najpierw sprawdza zasady biznesowe (tzw. &quot;strażnicy&quot;): czy zajęcia się nie skończyły, czy są wolne miejsca i czy użytkownik nie ma już rezerwacji. Jeśli testy przejdą, kontroler zleca Modelowi zapis do bazy.
+
+Warstwa Modelu i Bazy Danych (Reservation.php): Model wykorzystuje mechanizm Eloquent ORM. Tworzy nowy rekord w tabeli reservations, wiążąc user_id (zalogowanego klienta) z sport_class_id. Następnie model zajęć dekrementuje pulę wolnych miejsc.
+
+Warstwa Odpowiedzi (Przekierowanie): Po udanym zapisie, kontroler zwraca odpowiedź typu HTTP 302 Redirect. Kieruje użytkownika na stronę /my-reservations (Moje rezerwacje) i przekazuje w sesji zmienną success (tzw. flash message) z komunikatem o sukcesie.
+
+(W tym miejscu w swoim dokumencie musisz wkleić 5 zrzutów ekranu. Podpisz je tak:)
+
+Zrzut 1: Formularz HTML z przyciskiem &lt;button&gt; w pliku show.blade.php (Warstwa interfejsu).
+
+Zrzut 2: Linijka Route::post(&#x27;/reserve/{id}&#x27;, ...) w pliku web.php (Warstwa routingu).
+
+Zrzut 3: Metoda store w ReservationController.php - sprawdzanie warunków biznesowych (Logika).
+
+Zrzut 4: Funkcja Reservation::create([...]) w Kontrolerze (Operacja zapisu do bazy).
+
+Zrzut 5: Widok my-reservations.blade.php pokazujący wygenerowany na zielono komunikat sukcesu z sesji (Wynik).
+
+
+
+
+4. Sprawdzanie poprawności danych (Walidacja logiki biznesowej)
+Odpowiedź:
+Sprawdzanie danych następuje wewnątrz metody store w pliku ReservationController.php. Zamiast standardowej walidacji formularzy (ponieważ użytkownik wysyła tylko ID zajęć), aplikacja waliduje stan biznesowy systemu.
+Sprawdzane są trzy kryteria:
+
+Czas: \Carbon\Carbon::parse($sportClass-&gt;class_date)-&gt;isPast() – czy zajęcia już się odbyły.
+
+Dostępność: $sportClass-&gt;available_places &lt;= 0 – czy są jeszcze wolne miejsca.
+
+Duplikacja: Czy system Reservation::where(...) znajdzie już rezerwację tego użytkownika na te zajęcia.
+Jeśli jakikolwiek warunek nie jest spełniony, żądanie jest przerywane (return back), a użytkownik wraca na stronę zajęć, gdzie za pomocą systemu sesji with(&#x27;error&#x27;, &#x27;...&#x27;) widzi na ekranie czerwony komunikat z wyjaśnieniem, np. &quot;Niestety, zabrakło już wolnych miejsc na te zajęcia.&quot;
+
+
+
+
+5. Przykład dobrze zorganizowanego widoku
+Odpowiedź:
+Doskonałym przykładem jest plik resources/views/reservations/index.blade.php (Moje rezerwacje). Widok jest bardzo czytelny, ponieważ logika segregacji danych została wyniesiona na samą górę do bloku @php, gdzie kolekcja rezerwacji jest dzielona na $upcoming (nadchodzące) i $completed (ukończone) przy użyciu biblioteki Carbon. Dzięki temu, kod HTML poniżej unika powtarzania instrukcji warunkowych. Zamiast pisać ten sam kod widoku karty dla każdych zajęć ręcznie, zastosowano elegancką pętlę @foreach($upcoming as $reservation). Dodatkowo, widok korzysta z klas użyteczności Tailwind CSS, co pozwala na błyskawiczną zmianę kolorystyki czy układu bez konieczności tworzenia osobnych arkuszy stylów. Łatwo byłoby go rozbudować np. o sekcję &quot;Anulowane&quot;, dodając tylko jeden nowy filtr.
+
+
+
+
+6. Ukryta, ale kluczowa funkcjonalność
+Odpowiedź:
+Kluczową &quot;niewidoczną&quot; funkcjonalnością jest ochrona przed anulowaniem cudzej rezerwacji (Autoryzacja zasobu) w metodzie destroy w ReservationController.
+Gdy użytkownik klika &quot;Anuluj&quot;, aplikacja w tle sprawdza warunek: if (auth()-&gt;user()-&gt;role !== &#x27;admin&#x27; &amp;&amp; $reservation-&gt;user_id !== auth()-&gt;id()). Zabezpiecza to system przed sprytnymi użytkownikami, którzy mogliby podejrzeć adres URL anulowania rezerwacji (np. /reservations/15) i ręcznie zmienić ID w przeglądarce, aby usunąć cudzy trening. Ta funkcjonalność gwarantuje poufność i spójność danych – tylko właściciel rezerwacji (lub administrator) ma prawo ją skasować.
+
+
+
+
+7. Rozpoznawanie intencji użytkownika (Routing i HTTP)
+Odpowiedź:
+Aplikacja rozpoznaje intencje dzięki zastosowaniu protokołu HTTP i architektury RESTful. Użytkownik komunikuje się z serwerem poprzez adres URL i czasowniki HTTP.
+Jeśli użytkownik chce pobrać/wyświetlić dane, przeglądarka wysyła żądanie GET na adres np. /grafik.
+Jeśli użytkownik chce utworzyć rezerwację, formularz HTML używa atrybutu method=&quot;POST&quot; i wysyła dane na adres /reserve/{id}.
+Z kolei do usunięcia rezerwacji wymagana jest metoda DELETE. Ponieważ standardowe formularze HTML obsługują tylko GET i POST, aplikacja wymusza intencję usunięcia za pomocą tzw. &quot;spoofingu&quot; (dyrektywa @method(&#x27;DELETE&#x27;) w formularzu). W pliku tras (web.php) te intencje są precyzyjnie przypisane do konkretnych metod kontrolera (np. Route::delete trafia do metody destroy).
+
+
+
+
+8. Powiązanie danych (Relacje)
+Odpowiedź:
+W projekcie występuje ścisłe powiązanie (Relacja Jeden-do-Wielu) między modelem User (Użytkownik) a Reservation (Rezerwacja).
+
+W bazie danych: Tabela reservations posiada klucz obcy user_id, który wskazuje dokładnie na numer ID konkretnego użytkownika w tabeli users.
+
+W kodzie: W modelu User.php znajduje się metoda public function reservations() { return $this-&gt;hasMany(Reservation::class); }.
+
+W widoku: Dzięki Eloquent ORM, mogę łatwo i czytelnie wyświetlić dane, stosując tzw. &quot;Eager Loading&quot; lub odwołania obiektowe: np. wpisując $reservation-&gt;user-&gt;name, widok automatycznie pobiera z bazy i wyświetla na ekranie imię klienta, który dokonał danej rezerwacji (wykorzystane w panelu administratora).
+
+
+
+
+CZĘŚĆ 2
+10. Reakcja na nietypową sytuację
+Odpowiedź:
+Nietypową sytuacją jest próba zarezerwowania miejsca na zajęcia, które są już archiwalne (ich data minęła). W tradycyjnej aplikacji przycisk często pozostaje aktywny, a serwer zwraca błąd. W aplikacji SportBook problem ten rozwiązano wielowarstwowo. W warstwie Frontendu użytkownik nie może nawet kliknąć przycisku – system używa instrukcji @if(\Carbon\Carbon::parse($class-&gt;class_date)-&gt;isPast()), aby zmienić wygląd przycisku na szary z napisem &quot;Zakończone&quot; i dodać atrybut HTML disabled. Jeśli jednak użytkownik ominie to zabezpieczenie np. wysyłając żądanie przez aplikację typu Postman, w kodzie Backendu (Kontrolerze) znajduje się strażnik wyłapujący ten wyjątek. Przerywa on proces i cofa żądanie za pomocą funkcji back(), dołączając w sesji komunikat o błędzie.
+
+
+11. Proponowana poprawka techniczna
+Odpowiedź:
+Miejscem wymagającym poprawy technicznej jest sposób liczenia wolnych miejsc. Obecnie stosowana jest metoda manualnej dekrementacji i inkrementacji pola available_places w bazie danych podczas zapisywania i usuwania rezerwacji. Przy ogromnym ruchu jednoczesnych użytkowników (tzw. &quot;race conditions&quot;) może to doprowadzić do niespójności danych (baza pokaże 1 wolne miejsce, podczas gdy realnie zarezerwowanych będzie więcej). Zamiast utrzymywać na sztywno tę kolumnę w bazie, o wiele bezpieczniej byłoby obliczać wolne miejsca &quot;w locie&quot; w modelu zajęć, poprzez odjęcie zliczonych rezerwacji (funkcja count()) od maksymalnego limitu miejsc. Zapewniłoby to absolutną spójność danych w każdej sekundzie.
+
+
+12. Uzasadnienie oceny (Samoocena)
+Odpowiedź:
+Uważam, że projekt w pełni zasługuje na ocenę bardzo dobrą (5.0). Aplikacja nie tylko spełnia wszystkie założenia początkowe, ale również wdraża dobre, nowoczesne praktyki programistyczne typowe dla frameworka Laravel. System cechuje się wysokim bezpieczeństwem – zabezpieczono go przed atakami CSRF, a także rygorystycznie sprawdzane są uprawnienia autoryzacyjne przy akcjach takich jak anulowanie rezerwacji czy modyfikacja grafiku. Zadbano o pełną integralność danych poprzez wykorzystanie relacji Eloquent ORM. Logika biznesowa została wyraźnie oddzielona od warstwy prezentacji, gdzie wykorzystano nowoczesne podejście z użyciem Tailwind CSS oraz integrację z biblioteką JavaScript FullCalendar. Widoki są w 100% responsywne i spójne językowo. Całość jest odporna na błędy logiczne, a dzięki przemyślanym mechanizmom &quot;strażników&quot; (guards) w kontrolerach, użytkownik nie znajdzie się w &quot;ślepym zaułku&quot; aplikacji.
+
+
+13. Zmiana o najwyższym priorytecie
+Odpowiedź:
+W pierwszej kolejności należałoby wdrożyć system powiadomień E-mail o statusie rezerwacji (np. z wykorzystaniem wbudowanych w Laravela klas Mailable lub Notifications). Obecnie użytkownik dowiaduje się o sukcesie rezerwacji tylko z komunikatu na stronie (flash message). W świecie rzeczywistym, potwierdzenie mailowe wraz z datą, godziną i wytycznymi trenera jest absolutnym standardem. Zwiększyłoby to wiarygodność systemu w oczach użytkownika i zmniejszyło ryzyko niestawienia się na trening.
+
+
+14. Ocena projektów innych z grupy (Wskazówka jak to wypełnić)
+(Na to pytanie musisz odpowiedzieć samodzielnie, ponieważ nie znam projektów Twoich kolegów. Oto jak powinien wyglądać szablon Twojej odpowiedzi):
+
+Projekt MOCNIEJSZY od mojego:
+Projekt e-commerce stworzony przez [Imię Nazwisko kolegi / Temat projektu]. Oceniam ten projekt wyżej, ponieważ wdrożono w nim bardziej złożony proces checkoutu, powiązany z zewnętrznym API (np. bramką płatności Stripe/PayU). Dodatkowo zaimplementowano zaawansowany koszyk zakupowy oparty na sesjach oraz bardzo rozbudowany panel administratorski z generowaniem wykresów sprzedaży.
+
+Projekt SŁABSZY od mojego:
+Projekt [Temat projektu np. Prostego bloga]. Oceniam ten projekt nieco słabiej, ponieważ brakuje w nim głębszej walidacji logiki biznesowej. Aplikacja pozwala na wykonywanie akcji przez niezalogowanych użytkowników (brak middleware auth tam, gdzie jest to wymagane), widoki zawierają sporo powtarzającego się kodu zamiast komponentów Blade, a sam interfejs użytkownika jest wizualnie niekompletny i nieprzystosowany do urządzeń mobilnych.</pre>
+</body>
+</html>
