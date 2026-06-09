@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dokument</title>
+<style>
+body {
+    background-color: #000;
+    color: #fff;
+    font-family: Arial, sans-serif;
+    line-height: 1.6;
+    max-width: 1000px;
+    margin: 40px auto;
+    padding: 20px;
+}
+pre {
+    color: #fff;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+</style>
+</head>
+<body>
+<pre>Pytanie: Opisz, jak aplikacja rozróżnia użytkowników o różnych uprawnieniach. Wskaż przykład sytuacji, w której jedna osoba może wykonać daną akcję, a inna nie powinna mieć do niej dostępu. Wyjaśnij, jak projekt to kontroluje.
+
+Odpowiedź: W tabeli users w bazie danych mam kolumnę role (domyślnie jest to user, a dla administratora admin). Typowy przykład: przycisk "Edytuj te zajęcia" lub panel admina. Zwykły użytkownik ich nie widzi. Na frontendzie kontroluję to prostym warunkiem w widoku Blade: @if(auth()->user()->role === 'admin'). Ale to nie wszystko – na backendzie chronię ścieżki do edycji za pomocą middleware'ów w pliku routingów. Jeśli ktoś spróbuje wpisać adres z palca, serwer odrzuci żądanie.
+
+Pytanie: Wybierz jedną konkretną akcję w aplikacji (np. dodanie, edycję, usunięcie lub wyświetlenie zasobu). Opisz krok po kroku drogę, jaką przebywają dane od momentu wywołania akcji w interfejsie użytkownika, aż do trwałego przetworzenia ich przez system i zwrócenia wyniku.
+W swoim opisie zidentyfikuj wszystkie warstwy i komponenty aplikacji, przez które przechodzi to żądanie, oraz wyjaśnij ich rolę w tym konkretnym procesie.
+Ważne: Swoją odpowiedź koniecznie udokumentuj, dołączając co najmniej 5 fragmentów kodu lub zrzutów ekranu reprezentujących poszczególne etapy tego procesu. Każdy załączony fragment krótko podpisz, wyjaśniając, jaki to plik i za który element przepływu odpowiada (np. przechwycenie danych z formularza, główna logika biznesowa, operacja zapisu do bazy danych, zwrócenie ostatecznego widoku/odpowiedzi).
+
+Odpowiedź: Wybrałem akcję anulowania (usunięcia) rezerwacji.
+
+Widok (Interfejs): Użytkownik klika "Anuluj rezerwację". Żeby to zadziałało, formularz używa dyrektywy @method('DELETE'), która podmienia standardowe żądanie POST.
+(Tu wstaw Zrzut 1: Kod formularza anulowania z pliku widoku)
+
+Routing (web.php): Plik tras wyłapuje żądanie typu DELETE pod adresem np. /reservations/5 i kieruje je do klasy ReservationController do metody destroy.
+(Tu wstaw Zrzut 2: Linijka Route::delete(...) z pliku web.php)
+
+Kontroler (Logika i autoryzacja): Na wejściu upewniam się, czy na pewno usuwa to właściciel rezerwacji albo admin. Chroni to przed złośliwym kasowaniem danych innych osób.
+(Tu wstaw Zrzut 3: Warunek if (auth()->user()->role !== 'admin' && ...) z kontrolera)
+
+Model i Baza Danych: Wywołuję na relacji oddanie wolnego miejsca (increment), a na samej rezerwacji metodę delete(), co trwale kasuje wiersz w bazie.
+(Tu wstaw Zrzut 4: Fragment z kodem $reservation->delete() w kontrolerze)
+
+Widok (Odpowiedź): Na sam koniec przekierowuję użytkownika z powrotem na listę rezerwacji i doklejam do sesji zielony komunikat o powodzeniu.
+(Tu wstaw Zrzut 5: Funkcja return redirect()->with(...))
+
+Pytanie: Wskaż miejsce, w którym aplikacja sprawdza poprawność danych wpisanych przez użytkownika. Opisz, jakie dane są sprawdzane, jakie błędy mogą zostać wykryte i co zobaczy użytkownik, jeśli wpisze niepoprawne dane.
+
+Odpowiedź: Dobrzym przykładem jest ReservationController@store. Kiedy ktoś klika rezerwację, weryfikuję głównie logikę biznesową. Sprawdzam za pomocą pakietu Carbon, czy data zajęć już nie minęła (isPast()). Sprawdzam, czy jest w ogóle miejsce w sali, i czy użytkownik nie ma już tych zajęć w swoim grafiku. Jeśli wystąpi jakikolwiek konflikt, przerywam akcję i cofam klienta (return back()). Użytkownik widzi wtedy u siebie czerwoną belkę wygenerowaną z sesji, np. "Masz już rezerwację na te zajęcia".
+
+Pytanie: Wskaż przykład widoku, który jest dobrze zorganizowany. Opisz, dlaczego ten widok jest czytelny, czy unika powtarzania tych samych fragmentów oraz czy łatwo byłoby go zmienić lub rozbudować.
+
+Odpowiedź: Uważam, że świetnie zorganizowany jest widok "Moje rezerwacje" (index.blade.php w folderze reservations). Na samej górze pliku, w bloku @php, używam wbudowanego w Laravela pakietu Carbon, żeby posortować rezerwacje na nadchodzące i zrealizowane. Dzięki temu kod HTML na dole jest czysty. Zamiast powielać kod wielkich kafelków z zajęciami za pomocą warunków if, używam po prostu pętli @foreach dla oddzielnych sekcji. Jeśli chciałbym kiedyś dodać nową zakładkę np. "Anulowane", to po prostu dopisuję nowy filtr do zmiennej na górze i doklejam gotowy kod z pętlą.
+
+Pytanie: Wskaż jedną funkcjonalność, której nie widać od razu w interfejsie, ale która jest ważna dla działania projektu. Opisz, gdzie znajduje się w projekcie i dlaczego jest potrzebna. Może to być np. przygotowanie danych, sprawdzanie uprawnień, filtrowanie wyników, zapisywanie informacji w bazie, obsługa błędów, porządkowanie danych albo automatyczne ustawianie wartości.
+
+Odpowiedź: Kluczowa i niewidoczna na pierwszy rzut oka jest autoryzacja wewnątrz kontrolera podczas usuwania rezerwacji. Znajduje się tam warunek: if (auth()->user()->role !== 'admin' && $reservation->user_id !== auth()->id()). Klient w ogóle tego nie widzi. Gdyby tego zabrakło, byle haker mógłby użyć programu typu Postman, słać masowe żądania DELETE zmieniając tylko ID w pasku adresu (np. /reservations/1, /reservations/2) i bez problemu pokasować rezerwacje wszystkich innych ludzi w systemie. Ten jeden if pilnuje integralności bazy.
+
+Pytanie: Opisz, w jaki sposób aplikacja rozpoznaje, co użytkownik chce zrobić (pobrać dane, edytować, usunąć, utworzyć). Odnieś się do adresu strony, rodzaju żądania, formularza, ścieżki w aplikacji oraz fragmentu kodu, który obsługuje daną akcję.
+
+Odpowiedź: Dzieje się to na podstawie czasowników HTTP przypisanych do ścieżek w web.php. Jak ktoś po prostu klika w link do grafiku, przeglądarka wysyła żądanie GET, a serwer wie, że ma tylko wyświetlić widok. Kiedy ktoś klika "Zarezerwuj", formularz ma atrybut method="POST" i wysyła zapytanie na adres np. /reserve/5. Żeby coś usunąć, trzeba użyć żądania DELETE. Przeglądarki tego nie umieją w czystym HTML-u, więc do formularzy anulowania wklejam dyrektywę @method('DELETE'). Laravel sam sobie to zamienia na poprawne zapytanie i dzięki moim trasom odpala docelową funkcję destroy w kontrolerze.
+
+Pytanie: Opisz jeden przykład powiązania danych w projekcie. Wybierz dwa typy danych, które są ze sobą powiązane, np. użytkownik i jego wpisy, kategoria i produkty, zamówienie i pozycje zamówienia. Wyjaśnij, jak to powiązanie jest widoczne w bazie danych, kodzie i widoku
+
+Odpowiedź: Idealny przykład to relacja między Użytkownikiem a Rezerwacjami. To relacja Jeden-do-Wielu. W bazie danych widać to w tabeli reservations, która posiada klucz obcy user_id przypisany do konkretnego człowieka. W kodzie (w modelach PHP) łączę je metodami Eloquent: hasMany(Reservation::class) oraz belongsTo(User::class). W widoku jest to niesamowicie wygodne, bo używając ORM-u mogę napisać po prostu $reservation->user->name i na stronie pojawia się od razu wyciągnięte z drugiej tabeli imię osoby zapisanej na zajęcia.
+
+Pytanie: 2. Opisz, jak aplikacja reaguje na nietypową sytuację. Może to być np. próba wejścia na nieistniejący zasób, wpisanie błędnych danych, brak wymaganych uprawnień, brak pliku, pusta lista wyników albo błąd zapisu. Wskaż, co zobaczy użytkownik i co dzieje się w kodzie.
+
+Odpowiedź: Taką sytuacją jest np. próba rezerwacji zajęć, na których nie ma już miejsc. W interfejsie ten przycisk jest od razu zablokowany i robi się szary. Ale gdyby ktoś spróbował wymusić request sztucznie (np. botem), to kontroler łapie to warunkiem if ($sportClass->available_places <= 0). Aplikacja natychmiast przerywa działanie, wymusza komendę return back() i wypycha do sesji czerwoną belkę z komunikatem o braku miejsc. Użytkownik widzi po prostu odświeżoną stronę z wyraźną informacją, dlaczego akcja się nie powiodła. Jeśli spróbuje wejść tam, gdzie nie ma dostępu, ujrzy standardowy komunikat błędu 403 Forbidden.
+
+Pytanie: Wskaż jedno miejsce w projekcie, które Twoim zdaniem powinno zostać poprawione technicznie. Opisz konkretny problem, jego wpływ na działanie lub rozwijanie projektu oraz zaproponuj sposób poprawy.
+
+Odpowiedź: Przebudowałbym sposób liczenia wolnych miejsc. W tej chwili robię to używając wbudowanych metod w kontrolerze: increment i decrement bezpośrednio na kolumnie w bazie danych. To działa dobrze przy małym ruchu, ale przy ogromnym zainteresowaniu, gdzie wiele osób klika rezerwację w tej samej milisekundzie, mogłoby dojść do zjawiska "race conditions". Skutkiem byłoby przyjęcie do sali więcej osób, niż jest tam fizycznie miejsca. O wiele bezpieczniej byłoby przeliczać to "w locie": od maksymalnej liczby z modelu zajęć odejmować na żywo wynik funkcji count() dla dotychczas wpisanych tam rezerwacji.
+
+Pytanie: Napisz 6–10 zdań, w których wyjaśnisz, dlaczego projekt zasługuje na wskazaną ocenę. Odwołaj się do konkretnych przykładów z wcześniejszych odpowiedzi, np. działania aplikacji, obsługi żądań, formularzy, walidacji, bazy danych, relacji, uprawnień, widoków, bezpieczeństwa, kompletności lub jakości technicznej.
+
+Odpowiedź: (Zostaw miejsce na ocenę) Uważam, że projekt w pełni zasługuje na ocenę 5.0. Stworzyłem aplikację od zera, wykorzystując wzorzec MVC we frameworku Laravel. Ochroniłem wszystkie formularze przed najpopularniejszymi atakami (CSRF). Logika biznesowa działa poprawnie – aplikacja nie przepuści rezerwacji podwójnej czy dodanej po terminie, zabezpieczając się przed ominięciem ograniczeń frontendu. Wprowadziłem szczelną autoryzację opartą na rolach, uniemożliwiającą złośliwe manipulowanie cudzymi wpisami w bazie danych. Dane ułożyłem przy użyciu mechanizmu Eloquent ORM. Widoki, korzystające z Tailwind CSS, są napisane przejrzyście, bez niepotrzebnego kopiowania bloków HTML. To po prostu funkcjonalny, kompletny i gotowy system.
+
+Pytanie: Co należy poprawić w pierwszej kolejności, aby projekt zasługiwał na wyższą ocenę? Podaj jedną konkretną zmianę i wyjaśnij, dlaczego właśnie ona jest najważniejsza.
+
+Odpowiedź: W pierwszej kolejności dopisałbym moduł mailingowy (używając klas Mailables wbudowanych w Laravela). Obecnie, jeśli klient zapisze się na zajęcia, otrzymuje o tym powiadomienie wyłącznie w postaci "zielonej belki" na ekranie strony www. W prawdziwym biznesie e-mail z podsumowaniem, terminem zajęć i przypomnieniem jest absolutnym standardem. Znacząco podniosłoby to poziom profesjonalizmu i funkcjonalność całego projektu z perspektywy ostatecznego klienta.
+
+Pytanie: Wskaż po jednym przykładzie projektu z grupy, który oceniasz jako:
+mocniejszy od Twojego projektu, słabszy od Twojego projektu.
+Możesz wskazać autora projektu z imienia i nazwiska albo podać temat projektu, jeśli pozwala to jednoznacznie go rozpoznać.
+Przy każdym przykładzie krótko uzasadnij wybór, odnosząc się do konkretnych kryteriów, np. funkcjonalności, kompletności, jakości kodu, organizacji plików, pracy z bazą danych, obsługi formularzy, uprawnień, bezpieczeństwa, estetyki, działania aplikacji lub poziomu trudności.
+Nie oceniaj autora projektu — oceń wyłącznie sam projekt i jego wykonanie.
+
+Odpowiedź: (Uzupełnij poniższe dane na podstawie prezentacji kolegów)
+
+Projekt mocniejszy: Platforma e-commerce (autor: [Imię i Nazwisko / Temat]). Projekt ten charakteryzował się wyższym poziomem trudności ze względu na wdrożenie zewnętrznego API bramki płatniczej. Logika koszyka na zakupy zapisywana w sesjach była dużo bardziej zaawansowana programistycznie niż relacyjna rezerwacja zajęć.
+
+Projekt słabszy: Aplikacja typu prosty Blog (autor: [Imię i Nazwisko / Temat]). Uważam, że był słabszy, ponieważ brakowało w nim szczelnej autoryzacji tras. Miejscami niezalogowani użytkownicy mogli klikać w przyciski przeznaczone dla administracji. Ponadto kod HTML często się dublował na różnych widokach zamiast korzystać z ujednoliconych komponentów Blade.
+</html>
